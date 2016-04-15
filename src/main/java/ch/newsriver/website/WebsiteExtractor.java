@@ -1,12 +1,11 @@
-package ch.newsriver.data.website;
+package ch.newsriver.website;
 
 
-import ch.newsriver.data.html.HTML;
-import ch.newsriver.data.website.alexa.AlexaClient;
-import ch.newsriver.data.website.alexa.AlexaSiteInfo;
+import ch.newsriver.website.alexa.AlexaClient;
+import ch.newsriver.website.alexa.AlexaSiteInfo;
 import ch.newsriver.util.HTMLUtils;
-import com.google.common.base.Optional;
-import org.apache.commons.lang3.StringUtils;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.http.Consts;
 import org.apache.http.conn.util.PublicSuffixList;
 import org.apache.http.conn.util.PublicSuffixListParser;
@@ -21,12 +20,12 @@ import org.jsoup.select.Elements;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.URLDecoder;
 import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.Locale;
-import java.util.regex.Matcher;
+import java.util.*;
 
 import static java.time.LocalDate.now;
 
@@ -39,12 +38,19 @@ public class WebsiteExtractor {
 
 
     private static final SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss");
-
+    private static final Map<String, String> countries = new HashMap<>();
+    private static final Map<String, List<Double>> geoCountriesCapitals = new HashMap<>();
     static PublicSuffixList suffixList;
     static PublicSuffixMatcher matcher;
     static {
 
-        String listname="/suffixlist.txt";
+
+        for (String iso : Locale.getISOCountries()) {
+            Locale l = new Locale("", iso);
+            countries.put(l.getDisplayCountry().toLowerCase(), iso);
+        }
+
+        String listname="suffixlist.txt";
         try (InputStream inputStream = WebsiteExtractor.class.getClassLoader().getResourceAsStream(listname)){
 
             //suffix list is optained from https://publicsuffix.org
@@ -56,6 +62,32 @@ public class WebsiteExtractor {
         }
 
         matcher = new PublicSuffixMatcher(suffixList.getRules(), suffixList.getExceptions());
+
+        try (InputStream inputStream = WebsiteExtractor.class.getClassLoader().getResourceAsStream("capitals.geo.json")){
+
+
+
+            //geogeson obtained by https://github.com/MapSurferNET/MapSurfer.NET-Examples/tree/master/MapData/OpenStreetMap/World
+            //
+            //other sources
+            //geogeson obtained by https://github.com/johan/world.geo.json
+            //https://github.com/datasets/geo-countries
+            if (inputStream != null) {
+                ObjectMapper mapper = new ObjectMapper();
+               Iterator<JsonNode> iterator = mapper.readTree(inputStream).get("features").elements();
+                while(iterator.hasNext()){
+                    JsonNode node =iterator.next();
+                    JsonNode properties = node.get("properties");
+                    JsonNode geometry = node.get("geometry");
+                    if(properties!=null && geometry!=null && properties.has("is_in:country_code") && geometry.has("coordinates")) {
+                        geoCountriesCapitals.put(properties.get("is_in:country_code").textValue(), mapper.convertValue(geometry.get("coordinates"), List.class));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.fatal("Unable to load public suffix List", e);
+        }
+
     }
 
 
@@ -74,22 +106,69 @@ public class WebsiteExtractor {
         //Get Alexa information
         AlexaSiteInfo alexaSiteInfo = getAlexaSiteInfo(webSite.getCanonicalURL());
 
+        if(alexaSiteInfo!=null) {
+            String country = null;
+            try {
+                country = URLDecoder.decode(alexaSiteInfo.getCountry(), "utf-8").toLowerCase();
+            }catch (UnsupportedEncodingException e){
+                logger.fatal(e);
+            }
+            if(country!=null){
+                country = countries.get(country);
+            }
 
-        Locale locale = new Locale.Builder().setLanguage(alexaSiteInfo.getLanguage()).setRegion(alexaSiteInfo.getCountry()).build();
-        if(locale == null){
-            logger.error("Unable to retreive locale");
-            return  null;
-        }
-        webSite.setLocale(locale);
-        webSite.setRankingGlobal(alexaSiteInfo.getGlobalRank());
-        for(String country : alexaSiteInfo.getCountryRank().keySet()){
-            if(locale.getISO3Country().equalsIgnoreCase(country)){
-                webSite.setRankingCountry(alexaSiteInfo.getCountryRank().get(country));
-                break;
+
+            String language = alexaSiteInfo.getLanguage();
+            if(language.equalsIgnoreCase("x-unknown")){
+                language = null;
+            }else if(language.contains("-")){
+                String[] parts = language.split("-");
+                language = parts[0];
+                if(country == null){
+                    country=parts[1];
+                }
+            }
+            Locale.Builder builder = new Locale.Builder();
+            if(language!=null){
+                builder.setLanguage(language);
+            }
+            if(country!=null){
+                builder.setRegion(country);
+            }
+            Locale locale = builder.build();
+            if (locale == null) {
+                logger.error("Unable to retreive locale");
+                return null;
+            }else{
+                webSite.setCountryName(locale.getDisplayCountry());
+                webSite.setCountryCode(locale.getISO3Country());
+                webSite.getLanguages().add(locale.getISO3Language());
+            }
+
+            if(locale.getCountry()!=null && !locale.getCountry().isEmpty()){
+                webSite.setGeoLocation(geoCountriesCapitals.get(locale.getCountry()));
+            }
+
+            webSite.setRankingGlobal(alexaSiteInfo.getGlobalRank());
+            for(String countryCode : alexaSiteInfo.getCountryRank().keySet()){
+                if(locale.getCountry().equalsIgnoreCase(countryCode)){
+                    webSite.setRankingCountry(alexaSiteInfo.getCountryRank().get(countryCode));
+                    break;
+                }
+            }
+            try {
+                webSite.setName(URLDecoder.decode(alexaSiteInfo.getTitle(), "utf-8"));
+            }catch (UnsupportedEncodingException e){
+
+                webSite.setName(alexaSiteInfo.getTitle());
+            }
+            try {
+                webSite.setDescription(URLDecoder.decode(alexaSiteInfo.getDescription(), "utf-8"));
+            }catch (UnsupportedEncodingException e){
+                webSite.setDescription(alexaSiteInfo.getDescription());
             }
         }
-        webSite.setName(alexaSiteInfo.getTitle());
-        webSite.setDescription(alexaSiteInfo.getDescription());
+
 
         Elements linkTags = getLinkTags(webSite.getCanonicalURL());
         if (linkTags !=null && !linkTags.isEmpty()){
@@ -136,8 +215,9 @@ public class WebsiteExtractor {
             if(uri.getScheme().toLowerCase().startsWith("https")){
                 webSite.setSsl(true);
             }
-            webSite.setDomainName(getRootDomain(url).toLowerCase());
             webSite.setCanonicalURL(getUrl(webSite));
+            webSite.setDomainName(matcher.getDomainRoot(webSite.getCanonicalURL()));
+
 
     }
 
@@ -159,7 +239,7 @@ public class WebsiteExtractor {
             url.append("http://");
         }
         url.append(webSite.getHostName());
-        if((webSite.isSsl() && webSite.getPort()!=443) || (!webSite.isSsl() && webSite.getPort()!=80)){
+        if(webSite.getPort()>0 && ((webSite.isSsl() && webSite.getPort()!=443) || (!webSite.isSsl() && webSite.getPort()!=80))){
             url.append(":");
             url.append(webSite.getPort());
         }
@@ -197,7 +277,7 @@ public class WebsiteExtractor {
     public String getFeedURL(Element link, WebSite webSite){
         String url=null;
         if(link.hasAttr("rel") && link.attr("rel").equalsIgnoreCase("alternate") && link.hasAttr("type") && link.attr("type").equalsIgnoreCase("application/rss+xml") && link.hasAttr("href")){
-            url = absoluteURL(link.attr("href"), webSite.getCanonicalURL());
+            url = absoluteURL(link.attr("href").trim(), webSite.getCanonicalURL());
         }
         return url;
     }
@@ -205,7 +285,7 @@ public class WebsiteExtractor {
     public String getCanonicalURL(Element link, WebSite webSite){
         String url=null;
         if(link.hasAttr("rel") && link.attr("rel").equalsIgnoreCase("canonical") && link.hasAttr("href")){
-            url = absoluteURL(link.attr("href"), webSite.getCanonicalURL());
+            url = absoluteURL(link.attr("href").trim(), webSite.getCanonicalURL());
         }
         return url;
     }

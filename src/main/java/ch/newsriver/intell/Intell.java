@@ -1,19 +1,16 @@
 package ch.newsriver.intell;
 
 import ch.newsriver.dao.ElasticsearchPoolUtil;
-import ch.newsriver.data.content.Article;
-import ch.newsriver.data.html.HTML;
-import ch.newsriver.data.website.WebSite;
-import ch.newsriver.data.website.WebSiteFactory;
-import ch.newsriver.data.website.WebsiteExtractor;
-import ch.newsriver.executable.BatchInterruptibleWithinExecutorPool;
+import ch.newsriver.website.WebSite;
+import ch.newsriver.website.WebSiteFactory;
+import ch.newsriver.website.WebsiteExtractor;
+import ch.newsriver.executable.poolExecution.BatchInterruptibleWithinExecutorPool;
 import ch.newsriver.util.http.HttpClientPool;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
-import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.elasticsearch.action.index.IndexRequest;
@@ -31,6 +28,8 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.Properties;
 
+import static org.elasticsearch.common.xcontent.XContentFactory.jsonBuilder;
+
 /**
  * Created by eliapalme on 03/04/16.
  */
@@ -38,16 +37,16 @@ public class Intell extends BatchInterruptibleWithinExecutorPool implements Runn
 
     private static final Logger logger = LogManager.getLogger(Intell.class);
     private boolean run = false;
-    private static final int BATCH_SIZE = 250;
-    private static final int POOL_SIZE = 50;
-    private static final int QUEUE_SIZE = 500;
+    private static int  MAX_EXECUTUION_DURATION = 120;
+    private int batchSize;
 
     private static final ObjectMapper mapper = new ObjectMapper();
     Consumer<String, String> consumer;
 
-    public Intell() throws IOException {
+    public Intell(int poolSize, int batchSize, int queueSize) throws IOException {
 
-        super(POOL_SIZE, QUEUE_SIZE);
+        super(poolSize, queueSize,Duration.ofSeconds(MAX_EXECUTUION_DURATION));
+        this.batchSize = batchSize;
         run = true;
 
         try {
@@ -88,7 +87,7 @@ public class Intell extends BatchInterruptibleWithinExecutorPool implements Runn
 
 
         consumer = new KafkaConsumer(props);
-        consumer.subscribe(Arrays.asList("site-url"));
+        consumer.subscribe(Arrays.asList("website-url"));
 
     }
 
@@ -104,16 +103,17 @@ public class Intell extends BatchInterruptibleWithinExecutorPool implements Runn
 
         while (run) {
             try {
+                this.waitFreeBatchExecutors(batchSize);
+
                 ConsumerRecords<String, String> records = consumer.poll(1000);
                 IntellMain.addMetric("URLs in", records.count());
                 for (ConsumerRecord<String, String> record : records) {
-                    this.waitFreeBatchExecutors(BATCH_SIZE);
 
-                    supplyAsyncInterruptWithin(() -> {
+                    supplyAsyncInterruptExecutionWithin(() -> {
 
                         URI uri;
                         try {
-                            uri = new URI(record.value());
+                            uri = new URI(record.key());
                         }catch (URISyntaxException e){
                             logger.fatal("Invalid url",e);
                             return null;
@@ -126,22 +126,40 @@ public class Intell extends BatchInterruptibleWithinExecutorPool implements Runn
                                 Client client = null;
                                 client = ElasticsearchPoolUtil.getInstance().getClient();
 
-
                                 try {
-                                    IndexRequest indexRequest = new IndexRequest("newsriver-website", "website", webSite.getHostName());
+                                    IndexRequest indexRequest = new IndexRequest("newsriver-website", "website", webSite.getHostName().toLowerCase().trim());
                                     indexRequest.source(mapper.writeValueAsString(webSite));
                                     client.index(indexRequest).actionGet();
                                 } catch (Exception e) {
                                     logger.error("Unable to save publisher", e);
                                 } finally {
                                 }
+
+                                //update article if needed
+                                if(record.value()!=null && !record.value().isEmpty()){
+                                       /* try {
+                                            UpdateRequest updateRequest = new UpdateRequest();
+                                            updateRequest.index("newsriver");
+                                            updateRequest.type("article");
+                                            updateRequest.id(record.value());
+                                            updateRequest.doc(jsonBuilder()
+                                                    .startObject()
+                                                    .field("website", webSite)
+                                                    .endObject());
+                                            client.update(updateRequest).get();
+
+                                        } catch (Exception e) {
+                                            logger.fatal("Unable to deserialize website", e);
+                                            return null;
+                                        }*/
+                                }
                             }
                         }
 
                         return null;
-                    }, Duration.ofSeconds(60), this)
+                    }, this)
                             .exceptionally(throwable -> {
-                                logger.error("HTMLFetcher unrecoverable error.", throwable);
+                                logger.error("Unrecoverable error.", throwable);
                                 return null;
                             });
 

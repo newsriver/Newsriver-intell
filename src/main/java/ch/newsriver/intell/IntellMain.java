@@ -1,6 +1,7 @@
 package ch.newsriver.intell;
 
 import ch.newsriver.executable.Main;
+import ch.newsriver.executable.poolExecution.MainWithPoolExecutorOptions;
 import org.apache.commons.cli.Options;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -9,9 +10,9 @@ import org.apache.logging.log4j.Logger;
 /**
  * Created by eliapalme on 11/03/16.
  */
-public class IntellMain extends Main {
+public class IntellMain extends MainWithPoolExecutorOptions {
 
-    private static final int DEFAUTL_PORT = 9098;
+    private static final int DEFAUTL_PORT = 9095;
     private static final Logger logger = LogManager.getLogger(IntellMain.class);
 
 
@@ -21,21 +22,12 @@ public class IntellMain extends Main {
 
     static Intell intell;
 
-    public IntellMain(String[] args, Options options ){
-        super(args,options,true);
-
-
+    public IntellMain(String[] args){
+        super(args,true);
     }
 
     public static void main(String[] args){
-
-        Options options = new Options();
-
-        options.addOption("f","pidfile", true, "pid file location");
-        options.addOption(org.apache.commons.cli.Option.builder("p").longOpt("port").hasArg().type(Number.class).desc("port number").build());
-
-        new IntellMain(args,options);
-
+        new IntellMain(args);
     }
 
     public void shutdown(){
@@ -45,7 +37,8 @@ public class IntellMain extends Main {
 
     public void start(){
         try {
-            intell = new Intell();
+            System.out.println("Threads pool size:" + this.getPoolSize() +"\tbatch size:"+this.getBatchSize()+"\tqueue size:"+this.getBatchSize());
+            intell = new Intell(this.getPoolSize(),this.getBatchSize(),this.getQueueSize());
             new Thread(intell).start();
         } catch (Exception e) {
             logger.fatal("Unable to initialize scout", e);

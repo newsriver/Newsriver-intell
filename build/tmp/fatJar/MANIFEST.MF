@@ -1,0 +1,5 @@
+Manifest-Version: 1.0
+Implementation-Title: Newsriver Intell
+Implementation-Version: 0.1.3
+Main-Class: ch.newsriver.intell.IntellMain
+
