@@ -1,8 +1,8 @@
 package ch.newsriver.intell;
 
 import ch.newsriver.dao.ElasticsearchPoolUtil;
-import ch.newsriver.website.WebSite;
-import ch.newsriver.website.WebSiteFactory;
+import ch.newsriver.data.website.WebSite;
+import ch.newsriver.data.website.WebSiteFactory;
 import ch.newsriver.website.WebsiteExtractor;
 import ch.newsriver.executable.poolExecution.BatchInterruptibleWithinExecutorPool;
 import ch.newsriver.util.http.HttpClientPool;

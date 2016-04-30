@@ -20,7 +20,7 @@ processResources {
 
 dependencies {
     compile project(':Newsriver-lib')
-    compile 'org.elasticsearch:elasticsearch:2.2.2'
+    compile 'org.elasticsearch:elasticsearch:2.3.1'
     compile 'com.fasterxml.jackson.core:jackson-databind:2.7.2'
     compile 'com.fasterxml.jackson.core:jackson-core:2.7.2'
     compile 'com.fasterxml.jackson.core:jackson-annotations:2.7.2'

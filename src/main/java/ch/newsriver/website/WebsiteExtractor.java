@@ -1,8 +1,9 @@
 package ch.newsriver.website;
 
 
-import ch.newsriver.website.alexa.AlexaClient;
-import ch.newsriver.website.alexa.AlexaSiteInfo;
+import ch.newsriver.data.website.WebSite;
+import ch.newsriver.data.website.alexa.AlexaClient;
+import ch.newsriver.data.website.alexa.AlexaSiteInfo;
 import ch.newsriver.util.HTMLUtils;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
