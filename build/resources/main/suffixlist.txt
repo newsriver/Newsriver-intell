@@ -6691,7 +6691,7 @@ yt
 // IDN ccTLDs
 // When submitting patches, please maintain a sort by ISO 3166 ccTLD, then
 // U-label, and follow this format:
-// // A-Label ("<Latin renderings>", <language name>[, variant info]) : <ISO 3166 ccTLD>
+// // A-Label ("<Latin renderings>", <languageCode name>[, variant info]) : <ISO 3166 ccTLD>
 // // [sponsoring org]
 // U-Label
 
@@ -7661,8 +7661,8 @@ cool
 // corsica : 2014-09-25 Collectivité Territoriale de Corse
 corsica
 
-// country : 2013-12-19 Top Level Domain Holdings Limited
-country
+// countryName : 2013-12-19 Top Level Domain Holdings Limited
+countryName
 
 // coupon : 2015-02-26 Amazon EU S.à r.l.
 coupon
